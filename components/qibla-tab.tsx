@@ -13,6 +13,7 @@ interface QiblaTabProps {
 export default function QiblaTab({ language }: QiblaTabProps) {
   const [qiblaDirection, setQiblaDirection] = useState<number>(0)
   const [compassHeading, setCompassHeading] = useState<number>(0)
+  const [displayDirection, setDisplayDirection] = useState<number>(0)
   const [distance, setDistance] = useState<number>(0)
   const [location, setLocation] = useState<string>("")
   const [loading, setLoading] = useState(true)
@@ -25,6 +26,7 @@ export default function QiblaTab({ language }: QiblaTabProps) {
   const animationFrameId = useRef<number | null>(null)
   const lastUpdateTime = useRef<number>(0)
   const alignmentThreshold = useRef<{ on: number; off: number }>({ on: 12, off: 18 })
+  const displayDirectionRef = useRef<number>(0)
 
   const t = (key: TranslationKey) => translations[language][key]
 
@@ -59,6 +61,36 @@ export default function QiblaTab({ language }: QiblaTabProps) {
       }
     }
   }, [compassHeading, qiblaDirection, loading, isAligned])
+
+  useEffect(() => {
+    if (qiblaDirection === 0) return
+
+    const targetDirection = Math.round(qiblaDirection)
+    const currentDirection = displayDirectionRef.current
+
+    // Calculate shortest path considering 360° wrap
+    let diff = targetDirection - currentDirection
+    if (diff > 180) diff -= 360
+    if (diff < -180) diff += 360
+
+    // Only update if difference is significant (> 0.5 degrees)
+    if (Math.abs(diff) > 0.5) {
+      const step = diff * 0.15 // Smooth interpolation factor
+      const newDirection = (currentDirection + step + 360) % 360
+      displayDirectionRef.current = newDirection
+      setDisplayDirection(Math.round(newDirection))
+
+      // Continue animation
+      const timeoutId = setTimeout(() => {
+        setDisplayDirection((prev) => prev) // Trigger re-render
+      }, 50)
+
+      return () => clearTimeout(timeoutId)
+    } else {
+      displayDirectionRef.current = targetDirection
+      setDisplayDirection(targetDirection)
+    }
+  }, [qiblaDirection, displayDirection])
 
   const requestLocationAndCompass = async () => {
     try {
@@ -224,16 +256,17 @@ export default function QiblaTab({ language }: QiblaTabProps) {
             </div>
 
             <div
-              className="absolute inset-0 transition-transform duration-300 ease-out"
+              className="absolute inset-0 flex items-center justify-center transition-transform duration-300 ease-out"
               style={{ transform: `rotate(${qiblaDirection}deg)` }}
             >
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 translate-y-3">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
                 <div
                   className={`w-0 h-0 drop-shadow-lg transition-all duration-300 ${isAligned ? "scale-125" : ""}`}
                   style={{
-                    borderLeft: "14px solid transparent",
-                    borderRight: "14px solid transparent",
-                    borderBottom: isAligned ? "26px solid #10b981" : "26px solid #f97316",
+                    borderLeft: "20px solid transparent",
+                    borderRight: "20px solid transparent",
+                    borderBottom: isAligned ? "80px solid #10b981" : "80px solid #f97316",
+                    transform: "translateY(-40px)", // Offset to point upward from center
                   }}
                 />
               </div>
@@ -273,7 +306,7 @@ export default function QiblaTab({ language }: QiblaTabProps) {
               <p className="text-base text-muted-foreground mb-1">
                 {language === "th" ? "ทิศกิบลัต" : language === "ar" ? "اتجاه القبلة" : "Qibla Direction"}
               </p>
-              <p className="text-5xl font-bold text-primary">{Math.round(qiblaDirection)}°</p>
+              <p className="text-5xl font-bold text-primary tabular-nums">{displayDirection}°</p>
             </div>
             <div>
               <p className="text-base text-muted-foreground mb-1">
