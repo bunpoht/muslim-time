@@ -204,18 +204,11 @@ export default function QiblaTab({ language }: QiblaTabProps) {
     <div className="min-h-screen p-4">
       <div className="max-w-md mx-auto">
         <Card className="p-6 md:p-8 rounded-3xl shadow-lg">
-          {isAligned && (
-            <div className="mb-4 p-3 bg-green-500/10 border-2 border-green-500 rounded-xl text-center">
-              <div className="w-16 h-16 bg-green-500 rounded-full mx-auto mb-2 animate-pulse" />
-              <p className="text-green-600 font-semibold">
-                {language === "th" ? "✓ ทิศทางถูกต้อง" : language === "ar" ? "✓ الاتجاه صحيح" : "✓ Aligned with Qibla"}
-              </p>
-            </div>
-          )}
-
           <div className="relative w-full aspect-square max-w-sm mx-auto mb-8">
             <div
-              className="absolute inset-0 rounded-full border-[6px] border-primary/20 transition-transform duration-300 ease-out"
+              className={`absolute inset-0 rounded-full border-[6px] transition-all duration-300 ease-out ${
+                isAligned ? "border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.5)]" : "border-primary/20"
+              }`}
               style={{ transform: `rotate(${-compassHeading}deg)` }}
             >
               <div className="absolute top-2 left-1/2 -translate-x-1/2 text-base font-semibold text-foreground">N</div>
@@ -234,7 +227,7 @@ export default function QiblaTab({ language }: QiblaTabProps) {
               className="absolute inset-0 transition-transform duration-300 ease-out"
               style={{ transform: `rotate(${qiblaDirection}deg)` }}
             >
-              <div className="absolute top-[1.25rem] left-1/2 -translate-x-1/2">
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 translate-y-3">
                 <div
                   className={`w-0 h-0 drop-shadow-lg transition-all duration-300 ${isAligned ? "scale-125" : ""}`}
                   style={{
@@ -247,6 +240,14 @@ export default function QiblaTab({ language }: QiblaTabProps) {
             </div>
 
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 bg-primary rounded-full z-10 shadow-md" />
+
+            {isAligned && (
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 z-20">
+                <div className="bg-green-500 text-white px-4 py-2 rounded-full text-sm font-semibold shadow-lg animate-pulse whitespace-nowrap">
+                  {language === "th" ? "✓ ทิศทางถูกต้อง" : language === "ar" ? "✓ الاتجاه صحيح" : "✓ Aligned"}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="text-center mb-6">
