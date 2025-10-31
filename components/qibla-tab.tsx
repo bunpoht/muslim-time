@@ -7,12 +7,9 @@ import { Button } from "@/components/ui/button"
 import { translations, type Language, type TranslationKey } from "@/lib/translations"
 
 const smoothHeading = (current: number, target: number, smoothingFactor = 0.15) => {
-  // Calculate shortest angle difference
   let diff = target - current
   if (diff > 180) diff -= 360
   if (diff < -180) diff += 360
-
-  // Apply smoothing
   return (current + diff * smoothingFactor + 360) % 360
 }
 
@@ -28,7 +25,7 @@ export default function QiblaTab({ language }: QiblaTabProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>("")
   const [isCompassReady, setIsCompassReady] = useState(false)
-  const [debugInfo, setDebugInfo] = useState<string>("")
+  const [isAligned, setIsAligned] = useState(false)
 
   const latestHeading = useRef<number>(0)
   const smoothedHeading = useRef<number>(0)
@@ -54,10 +51,12 @@ export default function QiblaTab({ language }: QiblaTabProps) {
   useEffect(() => {
     if (isCompassReady && !loading) {
       const animate = (timestamp: number) => {
-        // Throttle updates to 30fps for smoother performance
         if (timestamp - lastUpdateTime.current > 33) {
           setCompassHeading((prevHeading) => {
             const newHeading = smoothHeading(prevHeading, smoothedHeading.current, 0.15)
+            const relativeDir = (qiblaDirection - newHeading + 360) % 360
+            const isWithinRange = relativeDir < 5 || relativeDir > 355
+            setIsAligned(isWithinRange)
             return newHeading
           })
           lastUpdateTime.current = timestamp
@@ -72,7 +71,7 @@ export default function QiblaTab({ language }: QiblaTabProps) {
         }
       }
     }
-  }, [isCompassReady, loading])
+  }, [isCompassReady, loading, qiblaDirection])
 
   const requestLocationAndCompass = async () => {
     try {
@@ -118,38 +117,26 @@ export default function QiblaTab({ language }: QiblaTabProps) {
     let heading: number
 
     if ((event as any).webkitCompassHeading !== undefined) {
-      // iOS devices with webkitCompassHeading (true heading)
       heading = (event as any).webkitCompassHeading
-      console.log("[v0] iOS compass heading:", heading)
     } else if (event.alpha !== null) {
-      // Android devices - alpha is rotation around z-axis
-      // For most Android devices, we need to invert: 360 - alpha
-      // because alpha increases counter-clockwise but compass increases clockwise
       heading = 360 - event.alpha
-      console.log("[v0] Android alpha:", event.alpha, "converted heading:", heading)
     } else {
       return
     }
 
-    // Add to history for moving average (keep last 5 readings)
     headingHistory.current.push(heading)
     if (headingHistory.current.length > 5) {
       headingHistory.current.shift()
     }
 
-    // Calculate moving average
     const avgHeading = headingHistory.current.reduce((sum, h) => sum + h, 0) / headingHistory.current.length
 
-    // Only update if change is significant (> 1 degree) to reduce jitter
     const diff = Math.abs(avgHeading - latestHeading.current)
     const normalizedDiff = Math.min(diff, 360 - diff)
 
     if (normalizedDiff > 1 || headingHistory.current.length < 3) {
       latestHeading.current = avgHeading
       smoothedHeading.current = avgHeading
-      setDebugInfo(
-        `Compass: ${Math.round(avgHeading)}° | Qibla: ${Math.round(qiblaDirection)}° | Relative: ${Math.round((qiblaDirection - avgHeading + 360) % 360)}°`,
-      )
     }
   }
 
@@ -210,6 +197,14 @@ export default function QiblaTab({ language }: QiblaTabProps) {
     <div className="min-h-screen p-4">
       <div className="max-w-md mx-auto">
         <Card className="p-6 md:p-8 rounded-3xl shadow-lg">
+          {isAligned && (
+            <div className="mb-4 p-3 bg-primary/10 border-2 border-primary rounded-xl text-center animate-pulse">
+              <p className="text-primary font-semibold">
+                {language === "th" ? "✓ ทิศทางถูกต้อง" : language === "ar" ? "✓ الاتجاه صحيح" : "✓ Aligned with Qibla"}
+              </p>
+            </div>
+          )}
+
           <div className="relative w-full aspect-square max-w-sm mx-auto mb-8">
             <div
               className="absolute inset-0 rounded-full border-[6px] border-primary/20 transition-transform duration-100 ease-out"
@@ -233,11 +228,11 @@ export default function QiblaTab({ language }: QiblaTabProps) {
             >
               <div className="absolute top-[1.25rem] left-1/2 -translate-x-1/2">
                 <div
-                  className="w-0 h-0 drop-shadow-lg"
+                  className={`w-0 h-0 drop-shadow-lg transition-all ${isAligned ? "scale-110" : ""}`}
                   style={{
                     borderLeft: "14px solid transparent",
                     borderRight: "14px solid transparent",
-                    borderBottom: "26px solid #f97316",
+                    borderBottom: isAligned ? "26px solid #10b981" : "26px solid #f97316",
                   }}
                 />
               </div>
