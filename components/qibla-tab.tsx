@@ -11,194 +11,65 @@ interface QiblaTabProps {
 }
 
 export default function QiblaTab({ language }: QiblaTabProps) {
-  const [qiblaDirection, setQiblaDirection] = useState<number>(0)
-  const [compassHeading, setCompassHeading] = useState<number>(0)
-  const [displayDirection, setDisplayDirection] = useState<number>(0)
+  const [compass, setCompass] = useState<number>(0)
+  const [pointDegree, setPointDegree] = useState<number>(0)
   const [distance, setDistance] = useState<number>(0)
   const [location, setLocation] = useState<string>("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>("")
-  const [isAligned, setIsAligned] = useState(false)
+  const [showPoint, setShowPoint] = useState(false)
+  const [isStarted, setIsStarted] = useState(false)
 
   const isIOS = useRef<boolean>(false)
-  const smoothedHeading = useRef<number>(0)
-  const headingHistory = useRef<number[]>([])
-  const animationFrameId = useRef<number | null>(null)
-  const lastUpdateTime = useRef<number>(0)
-  const alignmentThreshold = useRef<{ on: number; off: number }>({ on: 12, off: 18 })
-  const displayDirectionRef = useRef<number>(0)
 
   const t = (key: TranslationKey) => translations[language][key]
 
   useEffect(() => {
-    isIOS.current = /iPad|iPhone|iPod/.test(navigator.userAgent)
-    requestLocationAndCompass()
+    isIOS.current = !!(navigator.userAgent.match(/(iPod|iPhone|iPad)/) && navigator.userAgent.match(/AppleWebKit/))
+
+    navigator.geolocation.getCurrentPosition(locationHandler, (err) => {
+      setError("Please enable location access.")
+      setLoading(false)
+    })
 
     return () => {
-      window.removeEventListener("deviceorientationabsolute", handleOrientation, true)
-      window.removeEventListener("deviceorientation", handleOrientation, true)
-      if (animationFrameId.current) {
-        cancelAnimationFrame(animationFrameId.current)
-      }
+      window.removeEventListener("deviceorientation", handler, true)
+      window.removeEventListener("deviceorientationabsolute", handler, true)
     }
   }, [])
 
-  useEffect(() => {
-    if (!loading && qiblaDirection > 0) {
-      const diff = Math.abs(qiblaDirection - compassHeading)
-      const normalizedDiff = Math.min(diff, 360 - diff)
+  const locationHandler = (position: GeolocationPosition) => {
+    const { latitude, longitude } = position.coords
+    const degree = calcDegreeToPoint(latitude, longitude)
 
-      if (isAligned) {
-        // If already aligned, use higher threshold to turn off (hysteresis)
-        if (normalizedDiff > alignmentThreshold.current.off) {
-          setIsAligned(false)
-        }
-      } else {
-        // If not aligned, use lower threshold to turn on
-        if (normalizedDiff <= alignmentThreshold.current.on) {
-          setIsAligned(true)
-        }
-      }
+    let adjustedDegree = degree
+    if (degree < 0) {
+      adjustedDegree = degree + 360
     }
-  }, [compassHeading, qiblaDirection, loading, isAligned])
 
-  useEffect(() => {
-    if (qiblaDirection === 0) return
-
-    const targetDirection = Math.round(qiblaDirection)
-    const currentDirection = displayDirectionRef.current
-
-    // Calculate shortest path considering 360° wrap
-    let diff = targetDirection - currentDirection
-    if (diff > 180) diff -= 360
-    if (diff < -180) diff += 360
-
-    // Only update if difference is significant (> 0.5 degrees)
-    if (Math.abs(diff) > 0.5) {
-      const step = diff * 0.15 // Smooth interpolation factor
-      const newDirection = (currentDirection + step + 360) % 360
-      displayDirectionRef.current = newDirection
-      setDisplayDirection(Math.round(newDirection))
-
-      // Continue animation
-      const timeoutId = setTimeout(() => {
-        setDisplayDirection((prev) => prev) // Trigger re-render
-      }, 50)
-
-      return () => clearTimeout(timeoutId)
-    } else {
-      displayDirectionRef.current = targetDirection
-      setDisplayDirection(targetDirection)
-    }
-  }, [qiblaDirection, displayDirection])
-
-  const requestLocationAndCompass = async () => {
-    try {
-      setLoading(true)
-      setError("")
-
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
-        })
-      })
-
-      const { latitude, longitude } = position.coords
-      const qibla = calculateQiblaDirection(latitude, longitude)
-      setQiblaDirection(qibla)
-      setDistance(Math.round(calculateDistance(latitude, longitude, 21.4225, 39.8262)))
-      setLocation(`${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`)
-
-      const setupCompass = () => {
-        window.addEventListener("deviceorientationabsolute", handleOrientation, true)
-        window.addEventListener("deviceorientation", handleOrientation, true)
-      }
-
-      if (typeof (DeviceOrientationEvent as any).requestPermission === "function") {
-        const permission = await (DeviceOrientationEvent as any).requestPermission()
-        if (permission === "granted") setupCompass()
-        else setError("Compass permission was denied.")
-      } else {
-        setupCompass()
-      }
-    } catch (err: any) {
-      setError("Please enable location and compass access.")
-    } finally {
-      setLoading(false)
-    }
+    setPointDegree(adjustedDegree)
+    setDistance(Math.round(calculateDistance(latitude, longitude, 21.422487, 39.826206)))
+    setLocation(`${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`)
+    setLoading(false)
   }
 
-  const smoothHeading = (newHeading: number): number => {
-    const maxHistorySize = 5
-
-    // Handle 360/0 degree wrap-around
-    if (headingHistory.current.length > 0) {
-      const lastHeading = headingHistory.current[headingHistory.current.length - 1]
-      const diff = newHeading - lastHeading
-
-      if (diff > 180) {
-        newHeading -= 360
-      } else if (diff < -180) {
-        newHeading += 360
-      }
+  const calcDegreeToPoint = (latitude: number, longitude: number): number => {
+    const point = {
+      lat: 21.422487,
+      lng: 39.826206,
     }
 
-    headingHistory.current.push(newHeading)
-    if (headingHistory.current.length > maxHistorySize) {
-      headingHistory.current.shift()
-    }
-
-    const average = headingHistory.current.reduce((a, b) => a + b, 0) / headingHistory.current.length
-    return (average + 360) % 360
-  }
-
-  const handleOrientation = (event: DeviceOrientationEvent) => {
-    const now = Date.now()
-    if (now - lastUpdateTime.current < 33) return // ~30fps
-    lastUpdateTime.current = now
-
-    let heading: number
-
-    if ((event as any).webkitCompassHeading !== undefined) {
-      heading = (event as any).webkitCompassHeading
-    } else if (event.alpha !== null) {
-      heading = Math.abs(event.alpha - 360)
-    } else {
-      return
-    }
-
-    const smoothed = smoothHeading(heading)
-    smoothedHeading.current = smoothed
-
-    if (animationFrameId.current) {
-      cancelAnimationFrame(animationFrameId.current)
-    }
-
-    animationFrameId.current = requestAnimationFrame(() => {
-      setCompassHeading(smoothed)
-    })
-  }
-
-  const calculateQiblaDirection = (lat: number, lon: number): number => {
-    const kaabaLat = 21.4225
-    const kaabaLon = 39.8262
-
-    const latRad = (lat * Math.PI) / 180
-    const lonRad = (lon * Math.PI) / 180
-    const kaabaLatRad = (kaabaLat * Math.PI) / 180
-    const kaabaLonRad = (kaabaLon * Math.PI) / 180
-
-    const dLon = kaabaLonRad - lonRad
-
-    const y = Math.sin(dLon) * Math.cos(kaabaLatRad)
-    const x = Math.cos(latRad) * Math.sin(kaabaLatRad) - Math.sin(latRad) * Math.cos(kaabaLatRad) * Math.cos(dLon)
-
-    const bearing = Math.atan2(y, x)
-    const bearingDegrees = (bearing * 180) / Math.PI
-
-    return (bearingDegrees + 360) % 360
+    const phiK = (point.lat * Math.PI) / 180.0
+    const lambdaK = (point.lng * Math.PI) / 180.0
+    const phi = (latitude * Math.PI) / 180.0
+    const lambda = (longitude * Math.PI) / 180.0
+    const psi =
+      (180.0 / Math.PI) *
+      Math.atan2(
+        Math.sin(lambdaK - lambda),
+        Math.cos(phi) * Math.tan(phiK) - Math.sin(phi) * Math.cos(lambdaK - lambda),
+      )
+    return Math.round(psi)
   }
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -210,6 +81,38 @@ export default function QiblaTab({ language }: QiblaTabProps) {
       Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
     return R * c
+  }
+
+  const startCompass = async () => {
+    if (isIOS.current) {
+      if (typeof (DeviceOrientationEvent as any).requestPermission === "function") {
+        try {
+          const response = await (DeviceOrientationEvent as any).requestPermission()
+          if (response === "granted") {
+            window.addEventListener("deviceorientation", handler, true)
+            setIsStarted(true)
+          } else {
+            setError("Compass permission denied!")
+          }
+        } catch (err) {
+          setError("Compass not supported on this device")
+        }
+      }
+    } else {
+      window.addEventListener("deviceorientationabsolute", handler, true)
+      setIsStarted(true)
+    }
+  }
+
+  const handler = (e: DeviceOrientationEvent) => {
+    const compassHeading = (e as any).webkitCompassHeading || Math.abs((e.alpha || 0) - 360)
+    setCompass(compassHeading)
+
+    if (pointDegree) {
+      const diff = Math.abs(pointDegree - compassHeading)
+      const normalizedDiff = Math.min(diff, 360 - diff)
+      setShowPoint(normalizedDiff < 15)
+    }
   }
 
   if (loading)
@@ -227,7 +130,7 @@ export default function QiblaTab({ language }: QiblaTabProps) {
       <div className="flex items-center justify-center min-h-screen p-4">
         <Card className="p-6 text-center max-w-sm">
           <p className="text-destructive mb-4">{error}</p>
-          <Button onClick={requestLocationAndCompass}>{t("refresh")}</Button>
+          <Button onClick={() => window.location.reload()}>{t("refresh")}</Button>
         </Card>
       </div>
     )
@@ -237,11 +140,20 @@ export default function QiblaTab({ language }: QiblaTabProps) {
       <div className="max-w-md mx-auto">
         <Card className="p-6 md:p-8 rounded-3xl shadow-lg">
           <div className="relative w-full aspect-square max-w-sm mx-auto mb-8">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-5 z-10">
+              <div
+                className="w-0 h-0"
+                style={{
+                  borderLeft: "20px solid transparent",
+                  borderRight: "20px solid transparent",
+                  borderBottom: "30px solid #ef4444",
+                }}
+              />
+            </div>
+
             <div
-              className={`absolute inset-0 rounded-full border-[6px] transition-all duration-300 ease-out ${
-                isAligned ? "border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.5)]" : "border-primary/20"
-              }`}
-              style={{ transform: `rotate(${-compassHeading}deg)` }}
+              className="absolute inset-0 rounded-full border-4 border-primary/20 transition-transform duration-100 ease-out"
+              style={{ transform: `rotate(${-compass}deg)` }}
             >
               <div className="absolute top-2 left-1/2 -translate-x-1/2 text-base font-semibold text-foreground">N</div>
               <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-base font-semibold text-muted-foreground">
@@ -253,46 +165,36 @@ export default function QiblaTab({ language }: QiblaTabProps) {
               <div className="absolute right-2 top-1/2 -translate-y-1/2 text-base font-semibold text-muted-foreground">
                 E
               </div>
+
+              <div className="absolute inset-4 rounded-full bg-gradient-to-br from-primary/5 to-primary/10" />
             </div>
 
             <div
-              className="absolute inset-0 flex items-center justify-center transition-transform duration-300 ease-out"
-              style={{ transform: `rotate(${qiblaDirection}deg)` }}
-            >
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                <div
-                  className={`w-0 h-0 drop-shadow-lg transition-all duration-300 ${isAligned ? "scale-125" : ""}`}
-                  style={{
-                    borderLeft: "20px solid transparent",
-                    borderRight: "20px solid transparent",
-                    borderBottom: isAligned ? "80px solid #10b981" : "80px solid #f97316",
-                    transform: "translateY(-40px)", // Offset to point upward from center
-                  }}
-                />
-              </div>
-            </div>
+              className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-green-500 rounded-full transition-opacity duration-500 ${
+                showPoint ? "opacity-100 animate-pulse" : "opacity-0"
+              }`}
+            />
 
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 bg-primary rounded-full z-10 shadow-md" />
-
-            {isAligned && (
-              <div className="absolute -top-4 left-1/2 -translate-x-1/2 z-20">
-                <div className="bg-green-500 text-white px-4 py-2 rounded-full text-sm font-semibold shadow-lg animate-pulse whitespace-nowrap">
-                  {language === "th" ? "✓ ทิศทางถูกต้อง" : language === "ar" ? "✓ الاتجاه صحيح" : "✓ Aligned"}
-                </div>
-              </div>
-            )}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-foreground rounded-full z-20" />
           </div>
+
+          {!isStarted && (
+            <div className="text-center mb-6">
+              <Button onClick={startCompass} size="lg" className="w-full">
+                {language === "th" ? "เริ่มเข็มทิศ" : language === "ar" ? "ابدأ البوصلة" : "Start Compass"}
+              </Button>
+            </div>
+          )}
 
           <div className="text-center mb-6">
             <div className="flex items-center justify-center gap-3 mb-3">
               <h1 className="text-3xl font-bold">{t("qibla")}</h1>
               <button
-                onClick={requestLocationAndCompass}
-                disabled={loading}
-                className="p-2 hover:bg-muted rounded-full transition-colors disabled:opacity-50"
+                onClick={() => window.location.reload()}
+                className="p-2 hover:bg-muted rounded-full transition-colors"
                 aria-label={t("refresh")}
               >
-                <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw className="w-5 h-5" />
               </button>
             </div>
             <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -306,7 +208,7 @@ export default function QiblaTab({ language }: QiblaTabProps) {
               <p className="text-base text-muted-foreground mb-1">
                 {language === "th" ? "ทิศกิบลัต" : language === "ar" ? "اتجاه القبلة" : "Qibla Direction"}
               </p>
-              <p className="text-5xl font-bold text-primary tabular-nums">{displayDirection}°</p>
+              <p className="text-5xl font-bold text-primary tabular-nums">{Math.round(pointDegree)}°</p>
             </div>
             <div>
               <p className="text-base text-muted-foreground mb-1">
